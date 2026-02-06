@@ -1,14 +1,60 @@
 # claude-interview-mode
 
-An MCP (Model Context Protocol) server that turns Claude into a structured interviewer. Claude leads the conversation, asks probing questions, and tracks decisions — building a reusable checkpoint system that improves over time.
+An MCP server that turns Claude into a structured interviewer — and **gets smarter with every conversation**. Each interview feeds a shared evolution system where checkpoints are scored, ranked, and recommended based on real usage patterns across all users.
+
+## The Evolution System
+
+This isn't just an interview tool. It's a **collectively evolving knowledge system**.
+
+Every time anyone runs an interview in a category (e.g., "saas-pricing"), the system learns:
+
+```
+Session 1:  You explore freely → decisions become new checkpoints
+Session 2:  Checkpoints load → Claude prioritizes what matters
+Session 5:  Bayesian scores stabilize → the interview path optimizes itself
+Session 20: Community patterns emerge → everyone benefits from collective experience
+```
+
+### How evolution works
+
+**1. Checkpoint Discovery** — When a decision is made during an interview, its topic is automatically registered as a new checkpoint. After just a few sessions, the system knows what topics matter for each category.
+
+**2. Bayesian Scoring** — Each checkpoint tracks how often it's covered and how often it leads to a decision. The score uses Bayesian smoothing to handle sparse data:
+
+```
+decision_rate = (decisions + 0.6) / (times_covered + 2)
+```
+
+The prior (0.6/2 = 30% base rate) ensures new checkpoints start with a reasonable score. After ~5 sessions, real data dominates.
+
+**3. Composite Ranking** — Checkpoints are ranked by a composite score combining decision-leading effectiveness (70%) and usage frequency (30%):
+
+```
+composite = decision_rate × 0.7 + normalized_usage × 0.3
+```
+
+High-scoring checkpoints are the ones that consistently lead to concrete decisions — not just topics that get discussed.
+
+**4. Recommended Path** — The system computes an optimal interview path: checkpoints with `decision_rate > 0.2`, sorted by their average position in past sessions. This tells Claude not just *what* to ask, but *when* to ask it.
+
+**5. Community Evolution** — All metadata flows to a shared database. When you interview about "api-design", you benefit from every other user who interviewed about "api-design" before you. The checkpoints, scores, and paths evolve collectively.
+
+### What gets shared (and what doesn't)
+
+| Shared (metadata only) | Never shared |
+|------------------------|--------------|
+| Category names (e.g., "saas-pricing") | Your actual questions and answers |
+| Checkpoint names (e.g., "pricing-model") | Decision details and reasoning |
+| Usage counts, scores, positions | Any personal or project-specific content |
 
 ## What it does
 
-- **Claude drives the interview** — asks questions, proposes options, challenges assumptions
+- **Claude drives the interview** — asks questions, proposes options with reasoning, challenges assumptions
 - **Tracks Q&As and decisions** — structured records with timestamps
-- **Checkpoint system** — learns what topics matter per category and suggests them in future sessions
-- **Evolution system** — Bayesian scoring ranks checkpoints by how often they lead to decisions
-- **Privacy-first** — only metadata (categories, checkpoint names) goes to Supabase; actual conversation content stays local
+- **Evolving checkpoints** — learns what topics matter per category, ranked by Bayesian effectiveness scores
+- **Recommended paths** — suggests the optimal order to explore topics based on past interview patterns
+- **Concurrent sessions** — supports multiple interviews running in parallel
+- **Privacy-first** — only anonymous metadata (categories, checkpoint names, counts) goes to the shared database
 
 ## Install
 
@@ -38,11 +84,11 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-Restart your Claude Code session to load the MCP server. That's it — checkpoints persist automatically via a shared community database.
+Restart your Claude Code session to load the MCP server. That's it — the evolution system starts working immediately via a shared community database.
 
 ### Optional: Your own Supabase
 
-By default, checkpoint data is stored in a shared community Supabase instance (metadata only, no conversation content). If you want your own private database, set environment variables:
+By default, checkpoint data is stored in a shared community Supabase instance. If you want your own private database:
 
 ```json
 {
@@ -70,39 +116,47 @@ Start an interview with Claude Code:
 > Let's do an interview about my SaaS pricing strategy
 ```
 
-Claude will use the `interview` prompt to lead the conversation. You can also invoke tools directly:
+Claude will lead the conversation. As the interview progresses:
+- Each Q&A and decision is recorded with checkpoint coverage
+- At the end, metadata is uploaded to evolve the system
+- Next time anyone interviews in the same category, the improved checkpoints are loaded
 
 ### Tools
 
 | Tool | Description |
 |------|-------------|
-| `start_interview` | Begin a session with a topic and optional category |
-| `record` | Record a Q&A exchange or decision, with optional checkpoint coverage |
-| `get_context` | Get current session state with uncovered checkpoints and recommendations |
-| `end_interview` | End session, get summary, and persist metadata |
+| `start_interview` | Begin a session — loads scored checkpoints and recommended path |
+| `record` | Record a Q&A or decision, with checkpoint coverage tracking |
+| `get_context` | Review progress, see uncovered checkpoints ranked by score |
+| `end_interview` | End session, upload metadata, evolve the checkpoint system |
 
-### How checkpoints work
-
-1. **First interview** in a category — no checkpoints, explore freely
-2. Claude's **decisions** become checkpoints for future sessions
-3. **Next interview** in the same category loads those checkpoints, sorted by effectiveness
-4. The system **learns** which checkpoints consistently lead to decisions (Bayesian scoring)
-5. Over time, the recommended interview path optimizes itself
-
-## How it works
+## Architecture
 
 ```
 You ←→ Claude ←→ MCP Server (interview-mode)
-                      ↓ read (anon key)
+                      │
+                      ├─ read (anon key, read-only)
+                      │     └→ checkpoints, scores, patterns
+                      │
+                      └─ write (Edge Function, validated)
+                            └→ metadata, checkpoint updates, score recalculation
+                      │
                Supabase (shared community DB)
-                      ↑ write (Edge Function, validated)
 ```
 
-- **Session state** is in-memory, supports concurrent sessions
-- **Checkpoints** accumulate per category across sessions and users
-- **Scoring** uses Bayesian smoothed decision rates + usage frequency
-- **Security**: writes go through an Edge Function with validation; anon key is read-only
-- **Privacy**: no conversation content leaves your machine — only metadata (category names, checkpoint names, counts)
+**4 database tables power the evolution:**
+
+| Table | Purpose |
+|-------|---------|
+| `checkpoints` | Checkpoint dictionary per category (name, usage count, decision count) |
+| `checkpoint_scores` | Bayesian scores per checkpoint (decision rate, avg position, samples) |
+| `interview_patterns` | Coverage sequences per session (which checkpoints, in what order) |
+| `interview_metadata` | Session summaries (category, counts, duration) |
+
+**Security:**
+- Anon key is read-only (SELECT only via RLS)
+- All writes go through an Edge Function with input validation and spam defense
+- Empty interviews, implausible rates, and oversized payloads are rejected
 
 ## Development
 

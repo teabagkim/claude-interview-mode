@@ -1,5 +1,5 @@
-// Edge Function: record-data
-// Receives interview metadata from MCP server, validates, writes to DB.
+// Edge Function: record-data (deployed as super-api)
+// Receives interview metadata from MCP server, validates, normalizes, writes to DB.
 // Uses service_role key (auto-injected by Supabase) — never exposed to client.
 
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
@@ -9,6 +9,12 @@ const corsHeaders = {
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type",
 };
+
+// --- Normalization ---
+
+function normalizeKey(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, "-");
+}
 
 // --- Validation ---
 
@@ -61,8 +67,56 @@ function validate(body: unknown): RecordPayload | string {
       return "Invalid coverage event";
     if (typeof e.led_to_decision !== "boolean") return "Invalid coverage event";
   }
+  for (const s of b.decision_topics as string[]) {
+    if (typeof s !== "string" || s.length > 200) return "Invalid decision topic";
+  }
 
   return b as unknown as RecordPayload;
+}
+
+// --- Normalize payload ---
+
+function normalizePayload(payload: RecordPayload): RecordPayload {
+  return {
+    ...payload,
+    category: normalizeKey(payload.category),
+    covered_checkpoints: payload.covered_checkpoints.map(normalizeKey),
+    coverage_order: payload.coverage_order.map((e) => ({
+      checkpoint_name: normalizeKey(e.checkpoint_name),
+      led_to_decision: e.led_to_decision,
+    })),
+    decision_topics: payload.decision_topics.map(normalizeKey),
+    known_checkpoint_names: payload.known_checkpoint_names.map(normalizeKey),
+  };
+}
+
+// --- Spam/anomaly defense ---
+
+function isSpamOrEmpty(payload: RecordPayload): string | null {
+  // Reject empty interviews (no QAs and no decisions)
+  if (payload.total_qas === 0 && payload.total_decisions === 0) {
+    return "Empty interview: no QAs or decisions recorded";
+  }
+
+  // Reject suspiciously short sessions (< 10 seconds with content)
+  if (payload.duration_seconds < 10 && payload.total_qas > 0) {
+    return "Session too short for recorded content";
+  }
+
+  // Reject implausible ratios (e.g., 100 decisions in 30 seconds)
+  if (payload.total_decisions > 0 && payload.duration_seconds > 0) {
+    const decisionsPerMinute = (payload.total_decisions / payload.duration_seconds) * 60;
+    if (decisionsPerMinute > 30) {
+      return "Implausible decision rate";
+    }
+  }
+
+  // Reject if covered checkpoints exceed total available
+  if (payload.covered_checkpoints.length > payload.checkpoints_total + payload.total_decisions) {
+    return "Covered checkpoints exceed available checkpoints";
+  }
+
+  return null;
 }
 
 // --- Scoring ---
@@ -97,15 +151,25 @@ Deno.serve(async (req) => {
     });
   }
 
-  const result = validate(body);
-  if (typeof result === "string") {
-    return new Response(JSON.stringify({ error: result }), {
+  const validated = validate(body);
+  if (typeof validated === "string") {
+    return new Response(JSON.stringify({ error: validated }), {
       status: 400,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 
-  const payload = result;
+  // Normalize all keys
+  const payload = normalizePayload(validated);
+
+  // Spam/anomaly check
+  const spamReason = isSpamOrEmpty(payload);
+  if (spamReason) {
+    return new Response(JSON.stringify({ error: spamReason }), {
+      status: 422,
+      headers: { ...corsHeaders, "Content-Type": "application/json" },
+    });
+  }
 
   // Service role client — full DB access, auto-injected by Supabase
   const supabase = createClient(
@@ -126,32 +190,39 @@ Deno.serve(async (req) => {
   });
   if (metaErr) errors.push(`interview_metadata: ${metaErr.message}`);
 
-  // 2. Upsert checkpoints (increment usage_count + decision_count)
+  // 2. Batch: load all existing checkpoints for this category at once
+  const { data: existingCheckpoints } = await supabase
+    .from("checkpoints")
+    .select("id, name, usage_count, decision_count")
+    .eq("category", payload.category);
+
+  const cpMap = new Map(
+    (existingCheckpoints ?? []).map((cp) => [cp.name, cp])
+  );
+
+  // Build decision checkpoint set
   const decisionCpSet = new Set(
     payload.coverage_order
       .filter((e) => e.led_to_decision)
       .map((e) => e.checkpoint_name)
   );
 
+  // Upsert covered checkpoints
+  const cpInserts: Array<{ category: string; name: string; usage_count: number; decision_count: number }> = [];
+  const cpUpdates: Array<{ id: number; usage_count: number; decision_count: number }> = [];
+
   for (const cp of payload.covered_checkpoints) {
     const ledToDecision = decisionCpSet.has(cp);
-    const { data: existing } = await supabase
-      .from("checkpoints")
-      .select("id, usage_count, decision_count")
-      .eq("category", payload.category)
-      .eq("name", cp)
-      .single();
+    const existing = cpMap.get(cp);
 
     if (existing) {
-      await supabase
-        .from("checkpoints")
-        .update({
-          usage_count: existing.usage_count + 1,
-          decision_count: existing.decision_count + (ledToDecision ? 1 : 0),
-        })
-        .eq("id", existing.id);
+      cpUpdates.push({
+        id: existing.id,
+        usage_count: existing.usage_count + 1,
+        decision_count: existing.decision_count + (ledToDecision ? 1 : 0),
+      });
     } else {
-      await supabase.from("checkpoints").insert({
+      cpInserts.push({
         category: payload.category,
         name: cp,
         usage_count: 1,
@@ -163,23 +234,33 @@ Deno.serve(async (req) => {
   // 3. Discover new checkpoints from decision topics
   const knownSet = new Set(payload.known_checkpoint_names);
   for (const topic of payload.decision_topics) {
-    if (!knownSet.has(topic)) {
-      const { data: exists } = await supabase
-        .from("checkpoints")
-        .select("id")
-        .eq("category", payload.category)
-        .eq("name", topic)
-        .single();
-
-      if (!exists) {
-        await supabase.from("checkpoints").insert({
-          category: payload.category,
-          name: topic,
-          usage_count: 1,
-          decision_count: 1,
-        });
-      }
+    if (!knownSet.has(topic) && !cpMap.has(topic) && !cpInserts.some((i) => i.name === topic)) {
+      cpInserts.push({
+        category: payload.category,
+        name: topic,
+        usage_count: 1,
+        decision_count: 1,
+      });
     }
+  }
+
+  // Batch insert new checkpoints
+  if (cpInserts.length > 0) {
+    const { error: insertErr } = await supabase.from("checkpoints").insert(cpInserts);
+    if (insertErr) errors.push(`checkpoints insert: ${insertErr.message}`);
+  }
+
+  // Update existing checkpoints (batch not supported by Supabase REST, but we can parallelize)
+  const updateResults = await Promise.all(
+    cpUpdates.map((u) =>
+      supabase
+        .from("checkpoints")
+        .update({ usage_count: u.usage_count, decision_count: u.decision_count })
+        .eq("id", u.id)
+    )
+  );
+  for (const r of updateResults) {
+    if (r.error) errors.push(`checkpoints update: ${r.error.message}`);
   }
 
   // 4. Insert interview_patterns
@@ -197,17 +278,39 @@ Deno.serve(async (req) => {
     });
   if (patternErr) errors.push(`interview_patterns: ${patternErr.message}`);
 
-  // 5. Upsert checkpoint_scores (Bayesian scoring)
+  // 5. Batch: load all existing checkpoint_scores for this category
+  const { data: existingScores } = await supabase
+    .from("checkpoint_scores")
+    .select("id, checkpoint_name, times_covered, times_led_to_decision, avg_position, position_samples")
+    .eq("category", payload.category);
+
+  const scoreMap = new Map(
+    (existingScores ?? []).map((s) => [s.checkpoint_name, s])
+  );
+
+  // Prepare score inserts and updates
+  const scoreInserts: Array<{
+    category: string;
+    checkpoint_name: string;
+    times_covered: number;
+    times_led_to_decision: number;
+    decision_rate: number;
+    avg_position: number;
+    position_samples: number;
+  }> = [];
+  const scoreUpdates: Array<{
+    id: number;
+    times_covered: number;
+    times_led_to_decision: number;
+    decision_rate: number;
+    avg_position: number;
+    position_samples: number;
+  }> = [];
+
   for (let i = 0; i < payload.coverage_order.length; i++) {
     const event = payload.coverage_order[i];
     const position = i + 1;
-
-    const { data: existing } = await supabase
-      .from("checkpoint_scores")
-      .select("id, times_covered, times_led_to_decision, avg_position, position_samples")
-      .eq("category", payload.category)
-      .eq("checkpoint_name", event.checkpoint_name)
-      .single();
+    const existing = scoreMap.get(event.checkpoint_name);
 
     if (existing) {
       const newCovered = existing.times_covered + 1;
@@ -218,27 +321,67 @@ Deno.serve(async (req) => {
         (Number(existing.avg_position) * existing.position_samples + position) /
         newSamples;
 
-      await supabase
-        .from("checkpoint_scores")
-        .update({
-          times_covered: newCovered,
-          times_led_to_decision: newDecisions,
-          decision_rate: bayesianDecisionRate(newDecisions, newCovered),
-          avg_position: +newAvgPos.toFixed(2),
-          position_samples: newSamples,
-        })
-        .eq("id", existing.id);
+      scoreUpdates.push({
+        id: existing.id,
+        times_covered: newCovered,
+        times_led_to_decision: newDecisions,
+        decision_rate: bayesianDecisionRate(newDecisions, newCovered),
+        avg_position: +newAvgPos.toFixed(2),
+        position_samples: newSamples,
+      });
+
+      // Update scoreMap for subsequent events referencing same checkpoint
+      existing.times_covered = newCovered;
+      existing.times_led_to_decision = newDecisions;
+      existing.avg_position = +newAvgPos.toFixed(2);
+      existing.position_samples = newSamples;
     } else {
-      await supabase.from("checkpoint_scores").insert({
+      const decRate = bayesianDecisionRate(event.led_to_decision ? 1 : 0, 1);
+      scoreInserts.push({
         category: payload.category,
         checkpoint_name: event.checkpoint_name,
         times_covered: 1,
         times_led_to_decision: event.led_to_decision ? 1 : 0,
-        decision_rate: bayesianDecisionRate(event.led_to_decision ? 1 : 0, 1),
+        decision_rate: decRate,
+        avg_position: position,
+        position_samples: 1,
+      });
+
+      // Add to scoreMap in case same checkpoint appears again in this coverage_order
+      scoreMap.set(event.checkpoint_name, {
+        id: -1,
+        checkpoint_name: event.checkpoint_name,
+        times_covered: 1,
+        times_led_to_decision: event.led_to_decision ? 1 : 0,
         avg_position: position,
         position_samples: 1,
       });
     }
+  }
+
+  // Batch insert new scores
+  if (scoreInserts.length > 0) {
+    const { error: sInsertErr } = await supabase.from("checkpoint_scores").insert(scoreInserts);
+    if (sInsertErr) errors.push(`checkpoint_scores insert: ${sInsertErr.message}`);
+  }
+
+  // Parallel update existing scores
+  const scoreUpdateResults = await Promise.all(
+    scoreUpdates.map((u) =>
+      supabase
+        .from("checkpoint_scores")
+        .update({
+          times_covered: u.times_covered,
+          times_led_to_decision: u.times_led_to_decision,
+          decision_rate: u.decision_rate,
+          avg_position: u.avg_position,
+          position_samples: u.position_samples,
+        })
+        .eq("id", u.id)
+    )
+  );
+  for (const r of scoreUpdateResults) {
+    if (r.error) errors.push(`checkpoint_scores update: ${r.error.message}`);
   }
 
   const status = errors.length > 0 ? 207 : 200;

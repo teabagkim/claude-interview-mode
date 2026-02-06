@@ -69,8 +69,18 @@ function isUsingSharedSupabase(): boolean {
   return getSupabaseUrl() === DEFAULT_SUPABASE_URL;
 }
 
+let _supabaseClient: SupabaseClient | null = null;
 function getSupabase(): SupabaseClient {
-  return createClient(getSupabaseUrl(), getSupabaseKey());
+  if (!_supabaseClient) {
+    _supabaseClient = createClient(getSupabaseUrl(), getSupabaseKey());
+  }
+  return _supabaseClient;
+}
+
+// --- Normalization ---
+
+function normalizeKey(s: string): string {
+  return s.trim().toLowerCase().replace(/\s+/g, "-");
 }
 
 // --- Scoring Helpers ---
@@ -105,7 +115,6 @@ async function loadCheckpointScores(
   category: string
 ): Promise<Map<string, CheckpointScore>> {
   const sb = getSupabase();
-  if (!sb) return new Map();
 
   const { data } = await sb
     .from("checkpoint_scores")
@@ -157,7 +166,7 @@ async function uploadViaEdgeFunction(
       checkpoint_name: e.checkpointName,
       led_to_decision: e.ledToDecision,
     })),
-    decision_topics: session.decisions.map((d) => d.topic),
+    decision_topics: session.decisions.map((d) => normalizeKey(d.topic)),
     known_checkpoint_names: session.checkpoints.map((cp) => cp.name),
   };
 
@@ -372,7 +381,7 @@ function now(): string {
 
 const server = new McpServer({
   name: "claude-interview-mode",
-  version: "0.4.0",
+  version: "0.5.0",
 });
 
 // Tool: start_interview
@@ -389,9 +398,11 @@ server.tool(
       ),
   },
   async ({ topic, category }) => {
-    const cat = category ?? topic;
-    const checkpointNames = await loadCheckpoints(cat);
-    const scores = await loadCheckpointScores(cat);
+    const cat = normalizeKey(category ?? topic);
+    const [checkpointNames, scores] = await Promise.all([
+      loadCheckpoints(cat),
+      loadCheckpointScores(cat),
+    ]);
 
     // Sort checkpoints by composite score
     const maxUsage = checkpointNames.length; // rough proxy
@@ -525,13 +536,16 @@ server.tool(
       };
     }
 
+    // Normalize covered checkpoint names
+    const normalizedCovered = covered_checkpoints?.map(normalizeKey);
+
     // Mark covered checkpoints + track coverage order
     const isDecision = type === "decision";
-    if (covered_checkpoints?.length) {
+    if (normalizedCovered?.length) {
       const entryIndex = session.entries.length + session.decisions.length;
-      for (const cpName of covered_checkpoints) {
+      for (const cpName of normalizedCovered) {
         const cp = session.checkpoints.find(
-          (c) => c.name.toLowerCase() === cpName.toLowerCase()
+          (c) => c.name === cpName
         );
         if (cp && !cp.covered) {
           cp.covered = true;
@@ -545,7 +559,7 @@ server.tool(
         // Retroactively mark ledToDecision for previously covered checkpoints
         if (cp && isDecision) {
           const existing = session.coverageOrder.find(
-            (e) => e.checkpointName.toLowerCase() === cpName.toLowerCase()
+            (e) => e.checkpointName === cp.name
           );
           if (existing) existing.ledToDecision = true;
         }
@@ -618,7 +632,8 @@ server.tool(
           isError: true,
         };
       }
-      session.decisions.push({ topic, decision, reasoning, timestamp: now() });
+      const normalizedTopic = normalizeKey(topic);
+      session.decisions.push({ topic: normalizedTopic, decision, reasoning, timestamp: now() });
 
       const uncovered = session.checkpoints.filter((c) => !c.covered);
       const nextRec = getNextRecommended();
@@ -771,10 +786,7 @@ server.tool(
         newFromDecisions: session.decisions
           .map((d) => d.topic)
           .filter(
-            (t) =>
-              !session.checkpoints.some(
-                (cp) => cp.name.toLowerCase() === t.toLowerCase()
-              )
+            (t) => !session.checkpoints.some((cp) => cp.name === t)
           ),
       },
       stats: {

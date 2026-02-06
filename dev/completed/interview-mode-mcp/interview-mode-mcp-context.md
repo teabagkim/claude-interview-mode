@@ -65,10 +65,17 @@ Claude Code용 인터뷰 모드 MCP 서버. 대화로 방향을 잡아가는 범
 - RLS: **anon key = SELECT만** (read-only). 쓰기는 Edge Function(service_role) 경유
 - src/index.ts에 DEFAULT_SUPABASE_URL/KEY 하드코딩 (env var 없으면 공용 Supabase 자동 연결)
 
-## 현재 상태 (v0.3.1 + Phase 7 코드 완료)
-- Phase 1~5.5 완료, Phase 6 (npm 배포) 진행 중, Phase 7 (보안) 코드 완료
-- 새 Supabase 프로젝트에 스키마 적용 + Edge Function 배포 완료
-- **세션 재시작 후 E2E 검증 필요** — Edge Function 경유 쓰기 + anon key 읽기
+### Phase 8 결정 (v0.5.0 개선 2026-02-06)
+33. **normalizeKey** — category/checkpoint 이름을 trim+lowercase+hyphenate로 정규화 (중복 방지)
+34. **Supabase 클라이언트 캐싱** — `_supabaseClient` 싱글턴으로 재사용
+35. **Promise.all 병렬 로딩** — start_interview에서 checkpoints와 scores를 병렬 로드
+36. **decision topic 정규화** — record에서 decision topic도 normalizeKey 적용
+
+## 현재 상태 (v0.5.0 배포 완료 ✅)
+- Phase 1~8 모두 완료, npm `claude-interview-mode@0.5.0` 배포됨
+- Edge Function `super-api` + read-only RLS + 공용 Supabase 내장
+- curl E2E 검증 완료 (Edge Function → 4테이블 정상 쓰기 + anon key 읽기)
+- normalizeKey로 체크포인트/카테고리 이름 정규화
 
 ### Phase 5.5 결정 (동시성 수정)
 25. **Map 기반 세션 관리** — 단일 activeSessionId → Map<string, InterviewSession>
@@ -76,6 +83,4 @@ Claude Code용 인터뷰 모드 MCP 서버. 대화로 방향을 잡아가는 범
 27. **findSession 폴백** — session_id 없으면 가장 최근 active 세션 사용 (하위 호환)
 
 ## 다음 단계
-1. 세션 재시작 → E2E 검증 (Edge Function 경유 쓰기 확인)
-2. README 업데이트 (Supabase 설정 선택사항으로 변경)
-3. 버전 bump (v0.4.0) + git commit + tag push → npm publish
+- 프로젝트를 `dev/completed/`로 이동 (모든 Phase 완료)

@@ -66,17 +66,17 @@
 - [x] 빌드 성공 (v0.3.1)
 - [x] 6개 에이전트 동시 실행 → 세션 격리 검증 완료
 
-## Phase 6: npm 배포 (진행 중)
+## Phase 6: npm 배포 (완료)
 - [x] README.md 작성 (영어, 설치/설정/사용법)
 - [x] LICENSE (MIT)
 - [x] GitHub Actions CI/CD (v* 태그 → 자동 npm publish)
 - [x] GitHub repo push (github.com/teabagkim/claude-interview-mode)
-- [x] v0.3.1 태그 push
-- [ ] npm publish 결과 확인 (GitHub Actions 실행 상태)
-- [ ] `npx claude-interview-mode` 실행 테스트
-- [ ] npm 페이지 확인
+- [x] v0.3.1 태그 push + NPM_TOKEN 2FA 문제 해결 (Automation 토큰 재발급)
+- [x] npm publish 성공 (v0.3.1 → v0.4.0)
+- [x] `npx claude-interview-mode` 실행 테스트 (v0.4.0, initialize 정상 응답)
+- [x] npm 페이지 확인 (`npm view` 정상)
 
-## Phase 7: 보안 강화 — Edge Function (진행 중)
+## Phase 7: 보안 강화 — Edge Function (완료)
 - [x] 새 Supabase 프로젝트 생성 (wxbwktkgmdqzrpljmmvj)
 - [x] `supabase/schema-public.sql` 작성 (read-only RLS — anon key는 SELECT만)
 - [x] Supabase Dashboard에서 스키마 SQL 실행
@@ -85,6 +85,19 @@
 - [x] `src/index.ts` 수정: 새 Supabase URL/key + 듀얼 모드 (공용→Edge Function, 개인→직접쓰기)
 - [x] `.mcp.json` 새 프로젝트로 변경
 - [x] 빌드 성공
-- [ ] 세션 재시작 후 E2E 검증 (Edge Function 경유 쓰기 + anon key 읽기)
-- [ ] README 업데이트 (Supabase 설정 선택사항으로 변경)
-- [ ] 버전 bump + git commit + tag push → npm publish
+- [x] Edge Function E2E 검증 (curl로 POST → 4테이블 쓰기 + anon key 읽기 확인)
+- [x] README 업데이트 (Supabase 설정 선택사항, 공용 DB 기본 내장)
+- [x] 버전 bump v0.4.0 + git commit + tag push → npm publish 성공
+
+## Phase 8: v0.5.0 개선 (완료)
+- [x] normalizeKey 함수 추가 (category/checkpoint 이름 정규화)
+- [x] Supabase 클라이언트 싱글턴 캐싱
+- [x] start_interview에서 Promise.all 병렬 로딩
+- [x] decision topic normalizeKey 적용
+- [x] README 대폭 개선 (진화 시스템 상세 설명)
+- [x] Edge Function 개선: 정규화 + 스팸 방어 + 빈 인터뷰 필터 + 배치 쿼리
+- [x] Edge Function 재배포 (Dashboard, super-api)
+- [x] v0.5.0 npm publish 성공
+
+## 프로젝트 완료
+모든 Phase (1~8) 완료. `dev/completed/`로 이동 예정.

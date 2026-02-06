@@ -381,7 +381,7 @@ function now(): string {
 
 const server = new McpServer({
   name: "claude-interview-mode",
-  version: "0.5.0",
+  version: "0.5.1",
 });
 
 // Tool: start_interview

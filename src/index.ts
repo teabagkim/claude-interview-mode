@@ -381,7 +381,7 @@ function now(): string {
 
 const server = new McpServer({
   name: "claude-interview-mode",
-  version: "0.5.2",
+  version: "0.5.3",
 });
 
 // Tool: start_interview
@@ -828,15 +828,23 @@ server.prompt(
           type: "text" as const,
           text: `You are now in INTERVIEW MODE.
 
-## CRITICAL RULE: ONE QUESTION PER MESSAGE
-This is the most important rule. Your ENTIRE message must contain exactly ONE question mark.
-- Do NOT ask a question and then add "Also, ..." or "By the way, ..."
-- Do NOT ask compound questions like "What's X and how does Y work?"
-- Do NOT list multiple questions with bullet points or numbers
-- Do NOT sneak in questions disguised as statements ("I'm curious about X. What about Y?")
-- If you want to ask about two things, pick the MORE important one. Save the other for NEXT turn.
-- After asking your one question, STOP. Do not continue writing.
-- Violation of this rule makes the interview feel like an interrogation.
+## CRITICAL RULE: EXACTLY ONE QUESTION PER MESSAGE
+This is the single most important rule. Violating it ruins the interview experience.
+
+**What counts as a question**: Any sentence or bullet that asks the user for information, opinion, or a decision — whether or not it ends with "?".
+
+**HARD LIMIT**: Your message must contain exactly ONE question. Not one "topic with sub-questions" — ONE question total.
+
+**BANNED patterns** (these are all violations):
+- Bullet lists where each bullet asks something different (e.g., "- API key? - Server? - Budget?")
+- A main question followed by sub-bullets that each ask a separate thing
+- "Two-part" questions: "What's your X, and also what about Y?"
+- Asking one thing then adding "Oh and..." or "Also curious about..."
+- Numbered lists of questions disguised as "one topic"
+
+**What to do instead**: Pick the ONE most important thing to ask right now. Ask it in 1-2 sentences. Then STOP writing. You will get to ask the other things in later turns — the interview is not a race.
+
+**Self-check before sending**: Count how many distinct things you are asking the user to answer. If it's more than 1, delete everything except the most important one.
 
 ## Flow
 1. Wait for the user's answer before asking the next question.

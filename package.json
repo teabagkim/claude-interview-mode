@@ -1,6 +1,6 @@
 {
   "name": "claude-interview-mode",
-  "version": "0.5.2",
+  "version": "0.5.3",
   "mcpName": "io.github.teabagkim/interview-mode",
   "description": "MCP server for Claude Code interview mode - conversational decision making",
   "type": "module",

@@ -6,12 +6,12 @@
     "url": "https://github.com/teabagkim/claude-interview-mode",
     "source": "github"
   },
-  "version": "0.5.2",
+  "version": "0.5.3",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "claude-interview-mode",
-      "version": "0.5.2",
+      "version": "0.5.3",
       "transport": {
         "type": "stdio"
       }

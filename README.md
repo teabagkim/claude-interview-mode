@@ -1,153 +1,173 @@
-# MCP Registry
+# claude-interview-mode
 
-The MCP registry provides MCP clients with a list of MCP servers, like an app store for MCP servers.
+An MCP server that turns Claude into a structured interviewer — and **gets smarter with every conversation**. Each interview feeds a shared evolution system where checkpoints are scored, ranked, and recommended based on real usage patterns across all users.
 
-[**📤 Publish my MCP server**](docs/modelcontextprotocol-io/quickstart.mdx) | [**⚡️ Live API docs**](https://registry.modelcontextprotocol.io/docs) | [**👀 Ecosystem vision**](docs/design/ecosystem-vision.md) | 📖 **[Full documentation](./docs)**
+## The Evolution System
 
-## Development Status
+This isn't just an interview tool. It's a **collectively evolving knowledge system**.
 
-**2025-10-24 update**: The Registry API has entered an **API freeze (v0.1)** 🎉. For the next month or more, the API will remain stable with no breaking changes, allowing integrators to confidently implement support. This freeze applies to v0.1 while development continues on v0. We'll use this period to validate the API in real-world integrations and gather feedback to shape v1 for general availability. Thank you to everyone for your contributions and patience—your involvement has been key to getting us here!
+Every time anyone runs an interview in a category (e.g., "saas-pricing"), the system learns:
 
-**2025-09-08 update**: The registry has launched in preview 🎉 ([announcement blog post](https://blog.modelcontextprotocol.io/posts/2025-09-08-mcp-registry-preview/)). While the system is now more stable, this is still a preview release and breaking changes or data resets may occur. A general availability (GA) release will follow later. We'd love your feedback in [GitHub discussions](https://github.com/modelcontextprotocol/registry/discussions/new?category=ideas) or in the [#registry-dev Discord](https://discord.com/channels/1358869848138059966/1369487942862504016) ([joining details here](https://modelcontextprotocol.io/community/communication)).
-
-Current key maintainers:
-- **Adam Jones** (Anthropic) [@domdomegg](https://github.com/domdomegg)  
-- **Tadas Antanavicius** (PulseMCP) [@tadasant](https://github.com/tadasant)
-- **Toby Padilla** (GitHub) [@toby](https://github.com/toby)
-- **Radoslav (Rado) Dimitrov** (Stacklok) [@rdimitrov](https://github.com/rdimitrov)
-
-## Contributing
-
-We use multiple channels for collaboration - see [modelcontextprotocol.io/community/communication](https://modelcontextprotocol.io/community/communication).
-
-Often (but not always) ideas flow through this pipeline:
-
-- **[Discord](https://modelcontextprotocol.io/community/communication)** - Real-time community discussions
-- **[Discussions](https://github.com/modelcontextprotocol/registry/discussions)** - Propose and discuss product/technical requirements
-- **[Issues](https://github.com/modelcontextprotocol/registry/issues)** - Track well-scoped technical work  
-- **[Pull Requests](https://github.com/modelcontextprotocol/registry/pulls)** - Contribute work towards issues
-
-### Quick start:
-
-#### Pre-requisites
-
-- **Docker**
-- **Go 1.24.x**
-- **ko** - Container image builder for Go ([installation instructions](https://ko.build/install/))
-- **golangci-lint v2.4.0**
-
-#### Running the server
-
-```bash
-# Start full development environment
-make dev-compose
+```
+Session 1:  You explore freely → decisions become new checkpoints
+Session 2:  Checkpoints load → Claude prioritizes what matters
+Session 5:  Bayesian scores stabilize → the interview path optimizes itself
+Session 20: Community patterns emerge → everyone benefits from collective experience
 ```
 
-This starts the registry at [`localhost:8080`](http://localhost:8080) with PostgreSQL. The database uses ephemeral storage and is reset each time you restart the containers, ensuring a clean state for development and testing.
+### How evolution works
 
-**Note:** The registry uses [ko](https://ko.build) to build container images. The `make dev-compose` command automatically builds the registry image with ko and loads it into your local Docker daemon before starting the services.
+**1. Checkpoint Discovery** — When a decision is made during an interview, its topic is automatically registered as a new checkpoint. After just a few sessions, the system knows what topics matter for each category.
 
-By default, the registry seeds from the production API with a filtered subset of servers (to keep startup fast). This ensures your local environment mirrors production behavior and all seed data passes validation. For offline development you can seed from a file without validation with `MCP_REGISTRY_SEED_FROM=data/seed.json MCP_REGISTRY_ENABLE_REGISTRY_VALIDATION=false make dev-compose`.
+**2. Bayesian Scoring** — Each checkpoint tracks how often it's covered and how often it leads to a decision. The score uses Bayesian smoothing to handle sparse data:
 
-The setup can be configured with environment variables in [docker-compose.yml](./docker-compose.yml) - see [.env.example](./.env.example) for a reference.
-
-<details>
-<summary>Alternative: Running a pre-built Docker image</summary>
-
-Pre-built Docker images are automatically published to GitHub Container Registry:
-
-```bash
-# Run latest stable release
-docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:latest
-
-# Run latest from main branch (continuous deployment)
-docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:main
-
-# Run specific release version
-docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:v1.0.0
-
-# Run development build from main branch
-docker run -p 8080:8080 ghcr.io/modelcontextprotocol/registry:main-20250906-abc123d
+```
+decision_rate = (decisions + 0.6) / (times_covered + 2)
 ```
 
-**Available tags:** 
-- **Releases**: `latest`, `v1.0.0`, `v1.1.0`, etc.
-- **Continuous**: `main` (latest main branch build)
-- **Development**: `main-<date>-<sha>` (specific commit builds)
+The prior (0.6/2 = 30% base rate) ensures new checkpoints start with a reasonable score. After ~5 sessions, real data dominates.
 
-</details>
+**3. Composite Ranking** — Checkpoints are ranked by a composite score combining decision-leading effectiveness (70%) and usage frequency (30%):
 
-#### Publishing a server
-
-To publish a server, we've built a simple CLI. You can use it with:
-
-```bash
-# Build the latest CLI
-make publisher
-
-# Use it!
-./bin/mcp-publisher --help
+```
+composite = decision_rate × 0.7 + normalized_usage × 0.3
 ```
 
-See [the publisher guide](./docs/modelcontextprotocol-io/quickstart.mdx) for more details.
+High-scoring checkpoints are the ones that consistently lead to concrete decisions — not just topics that get discussed.
 
-#### Other commands
+**4. Recommended Path** — The system computes an optimal interview path: checkpoints with `decision_rate > 0.2`, sorted by their average position in past sessions. This tells Claude not just *what* to ask, but *when* to ask it.
+
+**5. Community Evolution** — All metadata flows to a shared database. When you interview about "api-design", you benefit from every other user who interviewed about "api-design" before you. The checkpoints, scores, and paths evolve collectively.
+
+### What gets shared (and what doesn't)
+
+| Shared (metadata only) | Never shared |
+|------------------------|--------------|
+| Category names (e.g., "saas-pricing") | Your actual questions and answers |
+| Checkpoint names (e.g., "pricing-model") | Decision details and reasoning |
+| Usage counts, scores, positions | Any personal or project-specific content |
+
+## What it does
+
+- **Claude drives the interview** — asks questions, proposes options with reasoning, challenges assumptions
+- **Tracks Q&As and decisions** — structured records with timestamps
+- **Evolving checkpoints** — learns what topics matter per category, ranked by Bayesian effectiveness scores
+- **Recommended paths** — suggests the optimal order to explore topics based on past interview patterns
+- **Concurrent sessions** — supports multiple interviews running in parallel
+- **Privacy-first** — only anonymous metadata (categories, checkpoint names, counts) goes to the shared database
+
+## Install
 
 ```bash
-# Run lint, unit tests and integration tests
-make check
+npx claude-interview-mode
 ```
 
-There are also a few more helpful commands for development. Run `make help` to learn more, or look in [Makefile](./Makefile).
+Or install globally:
 
-<!--
-For Claude and other AI tools: Always prefer make targets over custom commands where possible.
--->
+```bash
+npm install -g claude-interview-mode
+```
+
+## Setup with Claude Code
+
+Add to your project's `.mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "interview-mode": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "claude-interview-mode"]
+    }
+  }
+}
+```
+
+Restart your Claude Code session to load the MCP server. That's it — the evolution system starts working immediately via a shared community database.
+
+### Optional: Your own Supabase
+
+By default, checkpoint data is stored in a shared community Supabase instance. If you want your own private database:
+
+```json
+{
+  "mcpServers": {
+    "interview-mode": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "claude-interview-mode"],
+      "env": {
+        "SUPABASE_URL": "https://your-project.supabase.co",
+        "SUPABASE_ANON_KEY": "your-anon-key"
+      }
+    }
+  }
+}
+```
+
+Then run `supabase/schema.sql` in your Supabase SQL Editor to create the tables.
+
+## Usage
+
+Start an interview with Claude Code:
+
+```
+> Let's do an interview about my SaaS pricing strategy
+```
+
+Claude will lead the conversation. As the interview progresses:
+- Each Q&A and decision is recorded with checkpoint coverage
+- At the end, metadata is uploaded to evolve the system
+- Next time anyone interviews in the same category, the improved checkpoints are loaded
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `start_interview` | Begin a session — loads scored checkpoints and recommended path |
+| `record` | Record a Q&A or decision, with checkpoint coverage tracking |
+| `get_context` | Review progress, see uncovered checkpoints ranked by score |
+| `end_interview` | End session, upload metadata, evolve the checkpoint system |
 
 ## Architecture
 
-### Project Structure
-
 ```
-├── cmd/                     # Application entry points
-│   └── publisher/           # Server publishing tool
-├── data/                    # Seed data
-├── deploy/                  # Deployment configuration (Pulumi)
-├── docs/                    # Documentation
-├── internal/                # Private application code
-│   ├── api/                 # HTTP handlers and routing
-│   ├── auth/                # Authentication (GitHub OAuth, JWT, namespace blocking)
-│   ├── config/              # Configuration management
-│   ├── database/            # Data persistence (PostgreSQL)
-│   ├── service/             # Business logic
-│   ├── telemetry/           # Metrics and monitoring
-│   └── validators/          # Input validation
-├── pkg/                     # Public packages
-│   ├── api/                 # API types and structures
-│   │   └── v0/              # Version 0 API types
-│   └── model/               # Data models for server.json
-├── scripts/                 # Development and testing scripts
-├── tests/                   # Integration tests
-└── tools/                   # CLI tools and utilities
-    └── validate-*.sh        # Schema validation tools
+You ←→ Claude ←→ MCP Server (interview-mode)
+                      │
+                      ├─ read (anon key, read-only)
+                      │     └→ checkpoints, scores, patterns
+                      │
+                      └─ write (Edge Function, validated)
+                            └→ metadata, checkpoint updates, score recalculation
+                      │
+               Supabase (shared community DB)
 ```
 
-### Authentication
+**4 database tables power the evolution:**
 
-Publishing supports multiple authentication methods:
-- **GitHub OAuth** - For publishing by logging into GitHub
-- **GitHub OIDC** - For publishing from GitHub Actions
-- **DNS verification** - For proving ownership of a domain and its subdomains
-- **HTTP verification** - For proving ownership of a domain
+| Table | Purpose |
+|-------|---------|
+| `checkpoints` | Checkpoint dictionary per category (name, usage count, decision count) |
+| `checkpoint_scores` | Bayesian scores per checkpoint (decision rate, avg position, samples) |
+| `interview_patterns` | Coverage sequences per session (which checkpoints, in what order) |
+| `interview_metadata` | Session summaries (category, counts, duration) |
 
-The registry validates namespace ownership when publishing. E.g. to publish...:
-- `io.github.domdomegg/my-cool-mcp` you must login to GitHub as `domdomegg`, or be in a GitHub Action on domdomegg's repos
-- `me.adamjones/my-cool-mcp` you must prove ownership of `adamjones.me` via DNS or HTTP challenge
+**Security:**
+- Anon key is read-only (SELECT only via RLS)
+- All writes go through an Edge Function with input validation and spam defense
+- Empty interviews, implausible rates, and oversized payloads are rejected
 
-## Community Projects
+## Development
 
-Check out [community projects](docs/community-projects.md) to explore notable registry-related work created by the community.
+```bash
+git clone https://github.com/teabagkim/claude-interview-mode.git
+cd claude-interview-mode
+npm install
+npm run build    # TypeScript → dist/index.js
+npm run dev      # Watch mode
+```
 
-## More documentation
+## License
 
-See the [documentation](./docs) for more details if your question has not been answered here!
+MIT

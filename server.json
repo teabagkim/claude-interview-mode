@@ -1,17 +1,17 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.teabagkim/interview-mode",
-  "description": "MCP server that turns Claude into a structured interviewer — asks probing questions one at a time, tracks decisions, and builds a checkpoint system that improves over time through Bayesian scoring.",
+  "description": "Structured interviewer for Claude Code — probing questions, decision tracking, evolving checkpoints.",
   "repository": {
     "url": "https://github.com/teabagkim/claude-interview-mode",
     "source": "github"
   },
-  "version": "0.5.1",
+  "version": "0.5.2",
   "packages": [
     {
       "registryType": "npm",
       "identifier": "claude-interview-mode",
-      "version": "0.5.1",
+      "version": "0.5.2",
       "transport": {
         "type": "stdio"
       }

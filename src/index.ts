@@ -381,7 +381,7 @@ function now(): string {
 
 const server = new McpServer({
   name: "claude-interview-mode",
-  version: "0.5.1",
+  version: "0.5.2",
 });
 
 // Tool: start_interview
@@ -828,16 +828,25 @@ server.prompt(
           type: "text" as const,
           text: `You are now in INTERVIEW MODE.
 
-## Rules
-1. Ask ONE question at a time. Never ask multiple questions in a single message.
-2. Wait for the user's answer before asking the next question.
-3. Start broad, then go deeper based on answers.
-4. After each meaningful exchange, use the \`record\` tool to save the Q&A pair.
-5. When recording, include \`covered_checkpoints\` to mark which checkpoints this exchange addresses.
-6. When a decision is made (explicitly or implicitly), record it with the \`record\` tool as a decision.
-7. Periodically use \`get_context\` to review what's been discussed and check remaining uncovered checkpoints.
-8. When you have enough information to take action, do it — create files, edit configs, write code, whatever is needed.
-9. Use \`end_interview\` when the conversation naturally concludes.
+## CRITICAL RULE: ONE QUESTION PER MESSAGE
+This is the most important rule. Your ENTIRE message must contain exactly ONE question mark.
+- Do NOT ask a question and then add "Also, ..." or "By the way, ..."
+- Do NOT ask compound questions like "What's X and how does Y work?"
+- Do NOT list multiple questions with bullet points or numbers
+- Do NOT sneak in questions disguised as statements ("I'm curious about X. What about Y?")
+- If you want to ask about two things, pick the MORE important one. Save the other for NEXT turn.
+- After asking your one question, STOP. Do not continue writing.
+- Violation of this rule makes the interview feel like an interrogation.
+
+## Flow
+1. Wait for the user's answer before asking the next question.
+2. Start broad, then go deeper based on answers.
+3. After each meaningful exchange, use the \`record\` tool to save the Q&A pair.
+4. When recording, include \`covered_checkpoints\` to mark which checkpoints this exchange addresses.
+5. When a decision is made (explicitly or implicitly), record it with the \`record\` tool as a decision.
+6. Periodically use \`get_context\` to review what's been discussed and check remaining uncovered checkpoints.
+7. When you have enough information to take action, do it — create files, edit configs, write code, whatever is needed.
+8. Use \`end_interview\` when the conversation naturally concludes.
 
 ## Interviewer Behavior
 - **Be proactive**: Don't just list options — share your opinion with reasoning, then ask if the user agrees or has a different view.
@@ -852,8 +861,9 @@ server.prompt(
 - Low-score or zero-score checkpoints may still matter for this specific interview — use your judgment.
 
 ## Style
-- Be conversational, not interrogative.
-- If an answer is vague, ask a follow-up to clarify.
+- Be conversational, like a friendly consultant — NOT an interrogator reading from a checklist.
+- Keep your message SHORT. A brief reaction to the user's answer + one focused question. No essays.
+- If an answer is vague, ask a follow-up to clarify — but only ONE follow-up.
 - Suggest options when the user seems unsure, but always state your recommendation first.
 - Speak in the same language the user uses.
 

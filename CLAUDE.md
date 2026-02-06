@@ -64,7 +64,13 @@ Checkpoints improve across sessions via Bayesian scoring:
 | `checkpoint_scores` | Per-checkpoint Bayesian scores: `decision_rate`, `avg_position`, coverage/decision counts |
 | `interview_patterns` | Per-session coverage sequences for pattern analysis |
 
-All tables have RLS enabled with public read/insert/update policies (anon key).
+All tables have RLS enabled. **Shared Supabase**: anon key = SELECT only; INSERT/UPDATE go through Edge Function (`super-api`) using service_role. **Personal Supabase**: direct writes with user's own keys.
+
+### Edge Function (`supabase/functions/record-data/index.ts`)
+- Deployed as `super-api` on the shared Supabase instance
+- Validates payloads, applies spam defense (duration ≥ 10s, decisions/min ≤ 30), calculates Bayesian scores server-side
+- Writes to all 4 tables using service_role key (auto-injected by Supabase)
+- Dual mode: `isUsingSharedSupabase()` routes to Edge Function; personal Supabase writes directly
 
 ### Environment Variables
 - `SUPABASE_URL` — Supabase project URL
@@ -72,7 +78,9 @@ All tables have RLS enabled with public read/insert/update policies (anon key).
 
 ## MCP Registration
 
-Register via `.mcp.json` (stdio transport, runs `node dist/index.js`).
+**Registry**: Published as `io.github.teabagkim/interview-mode` on the official MCP Registry (`registry.modelcontextprotocol.io`). Registry metadata in `server.json`.
+
+**Local setup**: Register via `.mcp.json` (stdio transport, runs `node dist/index.js`).
 `.claude/settings.local.json` mcpServers does **not** work — must use `.mcp.json`.
 
 ## CI/CD
@@ -80,9 +88,15 @@ Register via `.mcp.json` (stdio transport, runs `node dist/index.js`).
 GitHub Actions workflow (`.github/workflows/publish.yml`) publishes to npm on version tag push (`v*`).
 Requires `NPM_TOKEN` secret in GitHub repository settings (under `NPM_TOKEN` environment).
 
+## Scripts
+
+- `scripts/seed-data.ts` — Generates 300 simulated interview sessions (3 rounds × 100 personas) for Bayesian training
+- Build: `npx tsc -p scripts/tsconfig.seed.json` → `dist-scripts/seed-data.js`
+- Run: `node dist-scripts/seed-data.js` (options: `--dry-run`, `--seed=N`, `--round=N`)
+
 ## Dev Docs
 
-Working documents: `dev/active/interview-mode-mcp/` (plan, context, tasks)
+Archived: `dev/completed/interview-mode-mcp/` (plan, context, tasks)
 
 ## Critical Notes
 

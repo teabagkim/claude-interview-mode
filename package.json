@@ -1,6 +1,6 @@
 {
   "name": "claude-interview-mode",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "MCP server for Claude Code interview mode - conversational decision making",
   "type": "module",
   "main": "dist/index.js",
@@ -14,7 +14,23 @@
   "keywords": [
     "claude-code",
     "mcp",
-    "interview"
+    "interview",
+    "model-context-protocol",
+    "ai",
+    "decision-making"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/teabagkim/claude-interview-mode.git"
+  },
+  "homepage": "https://github.com/teabagkim/claude-interview-mode#readme",
+  "bugs": {
+    "url": "https://github.com/teabagkim/claude-interview-mode/issues"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "LICENSE"
   ],
   "author": "Teabag",
   "license": "MIT",

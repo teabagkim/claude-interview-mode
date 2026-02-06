@@ -278,11 +278,17 @@ async function uploadMetadata(session: InterviewSession): Promise<void> {
 // --- State ---
 
 const sessions = new Map<string, InterviewSession>();
-let activeSessionId: string | null = null;
 
-function getActiveSession(): InterviewSession | null {
-  if (!activeSessionId) return null;
-  return sessions.get(activeSessionId) ?? null;
+function findSession(sessionId?: string): InterviewSession | null {
+  if (sessionId) return sessions.get(sessionId) ?? null;
+  // Fallback: most recently created active session
+  let latest: InterviewSession | null = null;
+  for (const s of sessions.values()) {
+    if (s.status === "active") {
+      if (!latest || s.startedAt > latest.startedAt) latest = s;
+    }
+  }
+  return latest;
 }
 
 function generateId(): string {
@@ -297,7 +303,7 @@ function now(): string {
 
 const server = new McpServer({
   name: "claude-interview-mode",
-  version: "0.3.0",
+  version: "0.3.1",
 });
 
 // Tool: start_interview
@@ -314,12 +320,6 @@ server.tool(
       ),
   },
   async ({ topic, category }) => {
-    // End any active session
-    if (activeSessionId) {
-      const prev = sessions.get(activeSessionId);
-      if (prev) prev.status = "completed";
-    }
-
     const cat = category ?? topic;
     const checkpointNames = await loadCheckpoints(cat);
     const scores = await loadCheckpointScores(cat);
@@ -354,7 +354,6 @@ server.tool(
     };
 
     sessions.set(id, session);
-    activeSessionId = id;
 
     const hasCheckpoints = sortedCheckpoints.length > 0;
     const recommendedPath = computeRecommendedPath(scores);
@@ -427,6 +426,12 @@ server.tool(
       .describe(
         "Checkpoint names that this Q&A or decision covers. Match against the checkpoints loaded at session start."
       ),
+    session_id: z
+      .string()
+      .optional()
+      .describe(
+        "Session ID to record into. If omitted, uses the most recent active session."
+      ),
   },
   async ({
     type,
@@ -436,8 +441,9 @@ server.tool(
     decision,
     reasoning,
     covered_checkpoints,
+    session_id,
   }) => {
-    const session = getActiveSession();
+    const session = findSession(session_id);
     if (!session) {
       return {
         content: [
@@ -588,9 +594,14 @@ server.tool(
 server.tool(
   "get_context",
   "Get the full context of the current interview session. Use this to review what has been discussed so far before asking the next question.",
-  {},
-  async () => {
-    const session = getActiveSession();
+  {
+    session_id: z
+      .string()
+      .optional()
+      .describe("Session ID. If omitted, uses the most recent active session."),
+  },
+  async ({ session_id }) => {
+    const session = findSession(session_id);
     if (!session) {
       return {
         content: [
@@ -645,9 +656,14 @@ server.tool(
 server.tool(
   "end_interview",
   "End the current interview session and get a structured summary of all Q&As and decisions. Use this when enough information has been gathered.",
-  {},
-  async () => {
-    const session = getActiveSession();
+  {
+    session_id: z
+      .string()
+      .optional()
+      .describe("Session ID to end. If omitted, uses the most recent active session."),
+  },
+  async ({ session_id }) => {
+    const session = findSession(session_id);
     if (!session) {
       return {
         content: [
@@ -658,7 +674,6 @@ server.tool(
     }
 
     session.status = "completed";
-    activeSessionId = null;
 
     // Upload metadata to Supabase (best-effort, awaited to prevent process exit race)
     try {

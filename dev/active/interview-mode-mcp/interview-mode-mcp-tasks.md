@@ -57,10 +57,34 @@
 - [x] `uploadMetadata` 수정: interview_patterns insert + checkpoint_scores upsert + decision_count 증분 수정
 - [x] 프롬프트 수정: Checkpoint Strategy 섹션 추가
 - [x] 빌드 성공 (v0.3.0)
-- [ ] 세션 재시작 후 E2E 검증 (같은 카테고리 인터뷰 2회 → 스코어 축적 확인)
+- [x] 세션 재시작 후 E2E 검증 (같은 카테고리 인터뷰 2회 → 스코어 축적 확인)
 
-## Phase 6: npm 배포 (미착수)
-- [ ] README.md 작성 (영어, 설치/설정/사용법)
-- [ ] 환경변수 가이드
+## Phase 5.5: 동시성 수정 (완료)
+- [x] 동시성 버그 발견: 단일 activeSessionId → 에이전트 간 세션 덮어쓰기
+- [x] Map<string, InterviewSession> + findSession(sessionId?) 구현
+- [x] record, get_context, end_interview에 session_id 파라미터 추가
+- [x] 빌드 성공 (v0.3.1)
+- [x] 6개 에이전트 동시 실행 → 세션 격리 검증 완료
+
+## Phase 6: npm 배포 (진행 중)
+- [x] README.md 작성 (영어, 설치/설정/사용법)
+- [x] LICENSE (MIT)
+- [x] GitHub Actions CI/CD (v* 태그 → 자동 npm publish)
+- [x] GitHub repo push (github.com/teabagkim/claude-interview-mode)
+- [x] v0.3.1 태그 push
+- [ ] npm publish 결과 확인 (GitHub Actions 실행 상태)
 - [ ] `npx claude-interview-mode` 실행 테스트
-- [ ] npm publish
+- [ ] npm 페이지 확인
+
+## Phase 7: 보안 강화 — Edge Function (진행 중)
+- [x] 새 Supabase 프로젝트 생성 (wxbwktkgmdqzrpljmmvj)
+- [x] `supabase/schema-public.sql` 작성 (read-only RLS — anon key는 SELECT만)
+- [x] Supabase Dashboard에서 스키마 SQL 실행
+- [x] `supabase/functions/record-data/index.ts` Edge Function 작성 (검증+스코어링+DB쓰기)
+- [x] Edge Function 배포 (Dashboard Via Editor, 이름: `super-api`)
+- [x] `src/index.ts` 수정: 새 Supabase URL/key + 듀얼 모드 (공용→Edge Function, 개인→직접쓰기)
+- [x] `.mcp.json` 새 프로젝트로 변경
+- [x] 빌드 성공
+- [ ] 세션 재시작 후 E2E 검증 (Edge Function 경유 쓰기 + anon key 읽기)
+- [ ] README 업데이트 (Supabase 설정 선택사항으로 변경)
+- [ ] 버전 bump + git commit + tag push → npm publish

@@ -38,11 +38,11 @@ Add to your project's `.mcp.json`:
 }
 ```
 
-Restart your Claude Code session to load the MCP server.
+Restart your Claude Code session to load the MCP server. That's it — checkpoints persist automatically via a shared community database.
 
-### Optional: Supabase persistence
+### Optional: Your own Supabase
 
-To persist checkpoints across sessions and enable the evolution system, create a [Supabase](https://supabase.com) project and add environment variables:
+By default, checkpoint data is stored in a shared community Supabase instance (metadata only, no conversation content). If you want your own private database, set environment variables:
 
 ```json
 {
@@ -60,13 +60,7 @@ To persist checkpoints across sessions and enable the evolution system, create a
 }
 ```
 
-Then run the schema in your Supabase SQL Editor:
-
-```sql
--- See supabase/schema.sql for the full schema
-```
-
-Without Supabase, the server works in local-only mode (checkpoints reset each session).
+Then run `supabase/schema.sql` in your Supabase SQL Editor to create the tables.
 
 ## Usage
 
@@ -99,18 +93,16 @@ Claude will use the `interview` prompt to lead the conversation. You can also in
 
 ```
 You ←→ Claude ←→ MCP Server (interview-mode)
-                      ↓
-               Supabase (optional)
-               - checkpoints
-               - interview_metadata
-               - checkpoint_scores
-               - interview_patterns
+                      ↓ read (anon key)
+               Supabase (shared community DB)
+                      ↑ write (Edge Function, validated)
 ```
 
-- **Session state** is in-memory (one session at a time)
-- **Checkpoints** accumulate per category across sessions
+- **Session state** is in-memory, supports concurrent sessions
+- **Checkpoints** accumulate per category across sessions and users
 - **Scoring** uses Bayesian smoothed decision rates + usage frequency
-- **Privacy**: no conversation content leaves your machine
+- **Security**: writes go through an Edge Function with validation; anon key is read-only
+- **Privacy**: no conversation content leaves your machine — only metadata (category names, checkpoint names, counts)
 
 ## Development
 

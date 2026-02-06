@@ -4,88 +4,90 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-Claude Interview Mode — Claude Code용 대화형 인터뷰 MCP 서버.
-Claude가 자유롭게 질문하며 방향을 잡아가는 범용 인터뷰 모드.
-npm 배포 대상: `claude-interview-mode` (npx로 실행 가능)
+Claude Interview Mode — an MCP server for Claude Code that turns Claude into a structured interviewer.
+Claude leads conversations, asks probing questions, tracks decisions, and builds a checkpoint system that improves over time.
+npm package: `claude-interview-mode` (runnable via `npx`)
 
 ## Stack
 
 - TypeScript + Node.js (ES2022, ESM)
-- `@modelcontextprotocol/sdk` (MCP 프로토콜)
-- `@supabase/supabase-js` (체크포인트 영속 저장)
-- `zod` (스키마 검증)
+- `@modelcontextprotocol/sdk` (MCP protocol)
+- `@supabase/supabase-js` (optional checkpoint persistence)
+- `zod` (schema validation)
 
 ## Commands
 
 ```bash
-npm run build        # TypeScript 빌드 (tsc) → dist/index.js
-npm run dev          # 빌드 watch 모드 (tsc --watch)
+npm run build        # TypeScript build (tsc) → dist/index.js
+npm run dev          # Watch mode (tsc --watch)
 ```
 
-빌드 후 테스트: `echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1}' | node dist/index.js`
+Smoke test after build:
+```bash
+echo '{"jsonrpc":"2.0","method":"initialize","params":{"capabilities":{}},"id":1}' | node dist/index.js
+```
 
 ## Architecture
 
-단일 파일 MCP 서버 (`src/index.ts`). 세션 상태는 in-memory, 체크포인트/메타데이터는 Supabase에 영속 저장.
+Single-file MCP server (`src/index.ts`, ~790 lines). Session state is in-memory, checkpoint/metadata persistence via Supabase (optional).
 
-### 핵심 설계
-- **Claude가 대화를 주도**, MCP는 상태 추적 + 체크포인트 관리
-- 세션당 `entries` (Q&A), `decisions` (결정), `checkpoints` (살아있는 체크리스트)
-- Supabase 연동은 optional — 환경변수 없으면 로컬 전용 모드로 동작
-- 개인 내용은 외부 전송 금지, 메타데이터(카테고리/체크포인트)만 Supabase에 저장
+### Core Design
+- **Claude drives the conversation**, MCP server tracks state + manages checkpoints
+- Per-session state: `entries` (Q&A pairs), `decisions`, `checkpoints` (live checklist), `coverageOrder` (sequence tracking)
+- Supabase is optional — without env vars, runs in local-only mode (checkpoints reset each session)
+- **Privacy**: only metadata (categories, checkpoint names, counts) goes to Supabase; conversation content stays local
+- Supports concurrent sessions via `session_id` parameter; falls back to most recent active session if omitted
 
-### MCP 도구
-| 도구 | 역할 |
-|------|------|
-| `start_interview` | 세션 시작 + Supabase에서 카테고리 체크포인트 로드 |
-| `record` | Q&A/결정 기록 + `covered_checkpoints`로 체크포인트 매칭 |
-| `get_context` | 세션 기록 + 미탐색 체크포인트 함께 반환 |
-| `end_interview` | 세션 종료 + 요약 + Supabase에 메타데이터 업로드 |
+### MCP Tools
+| Tool | Purpose |
+|------|---------|
+| `start_interview` | Begin session + load category checkpoints from Supabase (sorted by composite score) |
+| `record` | Save Q&A or decision + mark `covered_checkpoints` + track coverage order |
+| `get_context` | Return session state + uncovered checkpoints with score-based recommendations |
+| `end_interview` | Close session + generate summary + upload metadata to Supabase |
 
-### MCP 프롬프트
-- `interview` — 적극 제안형 인터뷰어 규칙 + 문서 연동 + 체크포인트 활용 지시
+### MCP Prompt
+- `interview` — Activates interviewer persona with rules for one-question-at-a-time flow, checkpoint strategy guidance, and proactive behavior
 
-### Supabase 테이블 (`supabase/schema.sql`)
-- `checkpoints` — 카테고리별 체크포인트 사전 (사용할수록 확장)
-- `interview_metadata` — 세션 메타데이터 (개인 내용 제외)
+### Evolution System (Phase 5)
+Checkpoints improve across sessions via Bayesian scoring:
+- **Scoring**: `bayesianDecisionRate(α=0.6, β=2)` smooths decision rates for low-sample checkpoints
+- **Composite score**: `decisionRate × 0.7 + normalizedUsage × 0.3` — balances effectiveness with popularity
+- **Recommended path**: checkpoints with `decisionRate ≥ 0.2`, sorted by average position in past interviews
+- `uploadMetadata()` at session end upserts `checkpoints`, `checkpoint_scores`, and `interview_patterns` tables
 
-### 환경변수
-- `SUPABASE_URL` — Supabase 프로젝트 URL
+### Supabase Tables (`supabase/schema.sql`)
+| Table | Purpose |
+|-------|---------|
+| `checkpoints` | Category-scoped checkpoint dictionary (grows with usage). Tracks `usage_count` and `decision_count` |
+| `interview_metadata` | Session-level stats (no personal content) |
+| `checkpoint_scores` | Per-checkpoint Bayesian scores: `decision_rate`, `avg_position`, coverage/decision counts |
+| `interview_patterns` | Per-session coverage sequences for pattern analysis |
+
+All tables have RLS enabled with public read/insert/update policies (anon key).
+
+### Environment Variables
+- `SUPABASE_URL` — Supabase project URL
 - `SUPABASE_ANON_KEY` — Supabase anon public key
 
-## MCP 등록
+## MCP Registration
 
-`.mcp.json`으로 등록 (stdio 트랜스포트, `node dist/index.js` 실행).
-`.claude/settings.local.json`의 mcpServers는 **미작동** — 반드시 `.mcp.json` 사용.
+Register via `.mcp.json` (stdio transport, runs `node dist/index.js`).
+`.claude/settings.local.json` mcpServers does **not** work — must use `.mcp.json`.
+
+## CI/CD
+
+GitHub Actions workflow (`.github/workflows/publish.yml`) publishes to npm on version tag push (`v*`).
+Requires `NPM_TOKEN` secret in GitHub repository settings (under `NPM_TOKEN` environment).
 
 ## Dev Docs
 
-작업 문서: `dev/active/interview-mode-mcp/`
+Working documents: `dev/active/interview-mode-mcp/` (plan, context, tasks)
 
-## Notes
+## Critical Notes
 
-- MCP 서버는 **세션 시작 시에만 로드** — 코드 수정 후 반드시 빌드 + 세션 재시작
-- `dist/index.js`에 shebang (`#!/usr/bin/env node`) 포함 — npx 직접 실행 지원
-- `package.json`의 `bin` 필드로 CLI 진입점 설정됨
-
-
-<claude-mem-context>
-# Recent Activity
-
-<!-- This section is auto-generated by claude-mem. Edit content outside the tags. -->
-
-### Feb 6, 2026
-
-| ID | Time | T | Title | Read |
-|----|------|---|-------|------|
-| #2143 | 4:24 PM | ⚖️ | Phase 5 Evolution System Architecture Designed | ~661 |
-| #2140 | 4:20 PM | 🔵 | Phase 5 Evolution System Requirements Analysis Completed | ~502 |
-| #2131 | 4:18 PM | 🔵 | Interview Mode MCP Server Configuration | ~284 |
-| #1788 | 3:29 PM | ✅ | Updated CLAUDE.md with Complete Project Documentation | ~431 |
-| #1781 | 3:28 PM | ✅ | Added .mcp.json Configuration File | ~265 |
-| #1776 | 3:26 PM | 🟣 | Claude Code Interview Mode MCP Server Implementation | ~471 |
-| #1772 | 3:23 PM | 🟣 | Package configuration created for Claude Interview Mode MCP server | ~265 |
-| #1771 | " | ✅ | MCP SDK and TypeScript dependencies installed | ~256 |
-| #1770 | " | ✅ | NPM project initialized for interview-mode | ~185 |
-| #1767 | 3:20 PM | ✅ | Project documentation created for Interview Mode application | ~276 |
-</claude-mem-context>
+- MCP servers load **only at session start** — after code changes, rebuild + restart session
+- `dist/index.js` includes shebang (`#!/usr/bin/env node`) for direct npx execution
+- `package.json` `bin` field maps `claude-interview-mode` → `dist/index.js`
+- `package.json` `files` field limits npm package to `dist/`, `README.md`, `LICENSE`
+- Supabase `uploadMetadata()` must be `await`ed — fire-and-forget causes data loss on process exit

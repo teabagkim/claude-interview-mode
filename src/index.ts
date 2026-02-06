@@ -52,11 +52,25 @@ interface InterviewSession {
 
 // --- Supabase ---
 
-function getSupabase(): SupabaseClient | null {
-  const url = process.env.SUPABASE_URL;
-  const key = process.env.SUPABASE_ANON_KEY;
-  if (!url || !key) return null;
-  return createClient(url, key);
+const DEFAULT_SUPABASE_URL = "https://wxbwktkgmdqzrpljmmvj.supabase.co";
+const DEFAULT_SUPABASE_ANON_KEY =
+  "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Ind4YndrdGtnbWRxenJwbGptbXZqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzAzNTg0MDksImV4cCI6MjA4NTkzNDQwOX0.ZNYcZG85TyoZIxWMAW-r321V7rEG6FjZZaZ4q0ujZG8";
+const EDGE_FUNCTION_URL = `${DEFAULT_SUPABASE_URL}/functions/v1/super-api`;
+
+function getSupabaseUrl(): string {
+  return process.env.SUPABASE_URL || DEFAULT_SUPABASE_URL;
+}
+
+function getSupabaseKey(): string {
+  return process.env.SUPABASE_ANON_KEY || DEFAULT_SUPABASE_ANON_KEY;
+}
+
+function isUsingSharedSupabase(): boolean {
+  return getSupabaseUrl() === DEFAULT_SUPABASE_URL;
+}
+
+function getSupabase(): SupabaseClient {
+  return createClient(getSupabaseUrl(), getSupabaseKey());
 }
 
 // --- Scoring Helpers ---
@@ -110,7 +124,6 @@ async function loadCheckpointScores(
 
 async function loadCheckpoints(category: string): Promise<string[]> {
   const sb = getSupabase();
-  if (!sb) return [];
 
   const { data } = await sb
     .from("checkpoints")
@@ -121,14 +134,57 @@ async function loadCheckpoints(category: string): Promise<string[]> {
   return data?.map((row) => row.name) ?? [];
 }
 
-async function uploadMetadata(session: InterviewSession): Promise<void> {
-  const sb = getSupabase();
-  if (!sb) {
-    console.error("[interview-mode] Supabase client not created (missing env vars?)");
-    console.error("[interview-mode] SUPABASE_URL:", process.env.SUPABASE_URL ? "set" : "MISSING");
-    console.error("[interview-mode] SUPABASE_ANON_KEY:", process.env.SUPABASE_ANON_KEY ? "set" : "MISSING");
-    return;
+// --- Upload: Edge Function (shared) or direct (private) ---
+
+async function uploadViaEdgeFunction(
+  session: InterviewSession
+): Promise<void> {
+  const covered = session.checkpoints
+    .filter((cp) => cp.covered)
+    .map((cp) => cp.name);
+
+  const durationMs =
+    new Date().getTime() - new Date(session.startedAt).getTime();
+
+  const payload = {
+    category: session.category,
+    covered_checkpoints: covered,
+    checkpoints_total: session.checkpoints.length,
+    total_qas: session.entries.length,
+    total_decisions: session.decisions.length,
+    duration_seconds: Math.round(durationMs / 1000),
+    coverage_order: session.coverageOrder.map((e) => ({
+      checkpoint_name: e.checkpointName,
+      led_to_decision: e.ledToDecision,
+    })),
+    decision_topics: session.decisions.map((d) => d.topic),
+    known_checkpoint_names: session.checkpoints.map((cp) => cp.name),
+  };
+
+  const res = await fetch(EDGE_FUNCTION_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${getSupabaseKey()}`,
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    console.error(
+      `[interview-mode] Edge Function error (${res.status}):`,
+      body
+    );
+  } else {
+    console.error("[interview-mode] Edge Function upload OK");
   }
+}
+
+async function uploadDirectToSupabase(
+  session: InterviewSession
+): Promise<void> {
+  const sb = getSupabase();
 
   const covered = session.checkpoints
     .filter((cp) => cp.covered)
@@ -148,9 +204,10 @@ async function uploadMetadata(session: InterviewSession): Promise<void> {
   });
 
   if (metaError) {
-    console.error("[interview-mode] interview_metadata insert error:", metaError);
-  } else {
-    console.error("[interview-mode] interview_metadata insert OK");
+    console.error(
+      "[interview-mode] interview_metadata insert error:",
+      metaError
+    );
   }
 
   // Build decision checkpoint set for quick lookup
@@ -160,7 +217,7 @@ async function uploadMetadata(session: InterviewSession): Promise<void> {
       .map((e) => e.checkpointName)
   );
 
-  // Upsert checkpoints: increment usage_count + decision_count for covered ones
+  // Upsert checkpoints: increment usage_count + decision_count
   for (const cp of covered) {
     const ledToDecision = decisionCpSet.has(cp);
     const { data: existing } = await sb
@@ -211,45 +268,49 @@ async function uploadMetadata(session: InterviewSession): Promise<void> {
     }
   }
 
-  // --- Phase 5: Insert interview pattern ---
-  const coverageSequence = session.coverageOrder.map((e) => e.checkpointName);
-  const decisionCheckpoints = session.coverageOrder
-    .filter((e) => e.ledToDecision)
-    .map((e) => e.checkpointName);
-
+  // Insert interview pattern
   const { error: patternError } = await sb
     .from("interview_patterns")
     .insert({
       category: session.category,
-      coverage_sequence: coverageSequence,
-      decision_checkpoints: decisionCheckpoints,
+      coverage_sequence: session.coverageOrder.map((e) => e.checkpointName),
+      decision_checkpoints: session.coverageOrder
+        .filter((e) => e.ledToDecision)
+        .map((e) => e.checkpointName),
       total_qas: session.entries.length,
       total_decisions: session.decisions.length,
       total_checkpoints_available: session.checkpoints.length,
     });
 
   if (patternError) {
-    console.error("[interview-mode] interview_patterns insert error:", patternError);
+    console.error(
+      "[interview-mode] interview_patterns insert error:",
+      patternError
+    );
   }
 
-  // --- Phase 5: Upsert checkpoint_scores ---
+  // Upsert checkpoint_scores
   for (let i = 0; i < session.coverageOrder.length; i++) {
     const event = session.coverageOrder[i];
-    const position = i + 1; // 1-based
+    const position = i + 1;
 
     const { data: existing } = await sb
       .from("checkpoint_scores")
-      .select("id, times_covered, times_led_to_decision, avg_position, position_samples")
+      .select(
+        "id, times_covered, times_led_to_decision, avg_position, position_samples"
+      )
       .eq("category", session.category)
       .eq("checkpoint_name", event.checkpointName)
       .single();
 
     if (existing) {
       const newCovered = existing.times_covered + 1;
-      const newDecisions = existing.times_led_to_decision + (event.ledToDecision ? 1 : 0);
+      const newDecisions =
+        existing.times_led_to_decision + (event.ledToDecision ? 1 : 0);
       const newSamples = existing.position_samples + 1;
       const newAvgPos =
-        (Number(existing.avg_position) * existing.position_samples + position) / newSamples;
+        (Number(existing.avg_position) * existing.position_samples + position) /
+        newSamples;
 
       await sb
         .from("checkpoint_scores")
@@ -272,6 +333,14 @@ async function uploadMetadata(session: InterviewSession): Promise<void> {
         position_samples: 1,
       });
     }
+  }
+}
+
+async function uploadMetadata(session: InterviewSession): Promise<void> {
+  if (isUsingSharedSupabase()) {
+    await uploadViaEdgeFunction(session);
+  } else {
+    await uploadDirectToSupabase(session);
   }
 }
 
@@ -303,7 +372,7 @@ function now(): string {
 
 const server = new McpServer({
   name: "claude-interview-mode",
-  version: "0.3.1",
+  version: "0.4.0",
 });
 
 // Tool: start_interview

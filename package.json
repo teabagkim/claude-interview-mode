@@ -1,6 +1,6 @@
 {
   "name": "claude-interview-mode",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "MCP server for Claude Code interview mode - conversational decision making",
   "type": "module",
   "main": "dist/index.js",

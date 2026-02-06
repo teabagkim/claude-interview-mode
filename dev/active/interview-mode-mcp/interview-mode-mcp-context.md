@@ -50,18 +50,32 @@ Claude Code용 인터뷰 모드 MCP 서버. 대화로 방향을 잡아가는 범
 23. **소급 마킹** — decision에서 covered_checkpoints 지정 시 이전 QA에서 커버한 체크포인트도 ledToDecision=true
 24. **Supabase 리전** — `us-west-2` (ap-northeast-2가 아님, pg 직접 연결로 확인)
 
-## Supabase 정보
-- 프로젝트: `tnefdqkeyldkjebtsydd`
-- URL: `https://tnefdqkeyldkjebtsydd.supabase.co`
-- DB 호스트: `aws-0-us-west-2.pooler.supabase.com` (port 5432)
-- 테이블 4개: `checkpoints`, `interview_metadata`, `checkpoint_scores`, `interview_patterns`
-- RLS: 전체 테이블 public read/insert/update
+### Phase 7 결정 (보안 강화 2026-02-06)
+28. **Edge Function 경유 쓰기** — anon key는 read-only, 쓰기는 Edge Function(service_role)으로만
+29. **듀얼 모드** — 공용 Supabase(기본) → Edge Function / 개인 Supabase(env var) → 직접 쓰기
+30. **Edge Function 이름** — `super-api` (Dashboard Via Editor로 배포)
+31. **데이터 검증** — Edge Function에서 category 길이, 배열 크기, 문자열 길이 등 제한
+32. **스코어링은 Edge Function에서** — Bayesian 스코어 계산을 서버 사이드에서 수행 (조작 방지)
 
-## 현재 상태 (v0.3.0)
-- Phase 1~5 완료, Phase 6 (npm 배포) 미착수
-- 진화 시스템 코드 구현 + 빌드 완료
-- **세션 재시작 후 E2E 검증 필요** — 같은 카테고리 인터뷰 2회 실행하여 스코어 축적 확인
+## Supabase 정보
+- 프로젝트 (이전): `tnefdqkeyldkjebtsydd` (테스트 데이터, 더 이상 사용 안 함)
+- 프로젝트 (현재): `wxbwktkgmdqzrpljmmvj` (공용 프로덕션)
+- Edge Function: `super-api` → `https://wxbwktkgmdqzrpljmmvj.supabase.co/functions/v1/super-api`
+- 테이블 4개: `checkpoints`, `interview_metadata`, `checkpoint_scores`, `interview_patterns`
+- RLS: **anon key = SELECT만** (read-only). 쓰기는 Edge Function(service_role) 경유
+- src/index.ts에 DEFAULT_SUPABASE_URL/KEY 하드코딩 (env var 없으면 공용 Supabase 자동 연결)
+
+## 현재 상태 (v0.3.1 + Phase 7 코드 완료)
+- Phase 1~5.5 완료, Phase 6 (npm 배포) 진행 중, Phase 7 (보안) 코드 완료
+- 새 Supabase 프로젝트에 스키마 적용 + Edge Function 배포 완료
+- **세션 재시작 후 E2E 검증 필요** — Edge Function 경유 쓰기 + anon key 읽기
+
+### Phase 5.5 결정 (동시성 수정)
+25. **Map 기반 세션 관리** — 단일 activeSessionId → Map<string, InterviewSession>
+26. **session_id 파라미터** — record, get_context, end_interview에 optional session_id 추가
+27. **findSession 폴백** — session_id 없으면 가장 최근 active 세션 사용 (하위 호환)
 
 ## 다음 단계
-1. 세션 재시작 → 진화 시스템 E2E 검증 (인터뷰 2회, 스코어 확인)
-2. Phase 6: npm 배포 준비 (README, 환경변수 가이드, npx 테스트)
+1. 세션 재시작 → E2E 검증 (Edge Function 경유 쓰기 확인)
+2. README 업데이트 (Supabase 설정 선택사항으로 변경)
+3. 버전 bump (v0.4.0) + git commit + tag push → npm publish

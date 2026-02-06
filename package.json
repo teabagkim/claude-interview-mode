@@ -1,0 +1,30 @@
+{
+  "name": "claude-interview-mode",
+  "version": "0.1.0",
+  "description": "MCP server for Claude Code interview mode - conversational decision making",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "claude-interview-mode": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "keywords": [
+    "claude-code",
+    "mcp",
+    "interview"
+  ],
+  "author": "Teabag",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0",
+    "@supabase/supabase-js": "^2.95.2",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.2.1",
+    "typescript": "^5.9.3"
+  }
+}
